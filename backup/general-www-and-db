@@ -1,0 +1,173 @@
+#!/bin/sh  
+
+
+# Rotate
+rotate(){
+    echo "Working in" `pwd`
+    echo "rotating old backup for $1 , max rotate is ${MAX_ROTATE}"
+    echo "Deleting last record"
+    rm -r "${1}_backup.${MAX_ROTATE}"* >> /dev/null 2>&1
+    START_INDEX=$(($MAX_ROTATE-1))
+    for i in `seq $START_INDEX 0`
+    do
+        echo "Rotating record $i"
+        oldname=`ls -al | awk '{print $9}'  | grep "${1}_backup.${i}@"`
+        j=$(($i+1))
+        newname=`echo $oldname | sed -e "s/_backup.$i@/_backup.$j@/g"`
+        echo "from=$oldname"
+        echo "to=$newname"
+        mv $oldname $newname >> /dev/null 2>&1
+    done
+
+
+}
+
+
+dateGen(){
+    date=`date "+%Y-%m-%d_%H:%M:%S"`
+}
+
+backup_www() {
+    # Logging
+    /usr/bin/logger -p local0.notice -t Backup "Backup for $1/$2 to $backup_destination_root/www/"
+    echo "backup www for $2"
+    # rotate
+    ## change directory first
+    cd $backup_destination_root/www/
+    rotate $2
+    # generate date
+    dateGen
+    echo "create date...$date"
+    name="${2}_backup.0@$date"
+    archive_path=$backup_destination_root/www/"$name".tar.gz
+    echo "Creating tar archive: $archive_path, archiving $1/$2"
+    /usr/bin/tar -zcf $archive_path $1/$2
+    # Google Backup
+    if [ $to_google -eq 1 ]; then
+        /usr/bin/logger -p local0.notice -t Backup "Upload the WWW backup files for $1/$2 to google drive"
+        # also upload this to google
+        # 1.create directory
+        rm -rf $backup_destination_root/google_backup/$backup_name/www/*
+        mkdir -p $backup_destination_root/google_backup/$backup_name/www
+        # 2.create hard link in prepare dir
+        ln $backup_destination_root/www/"$name".tar.gz $backup_destination_root/google_backup/$backup_name/www/"$name".tar.gz
+        # 3.upload whole dir
+        cd "$backup_destination_root/function/" && echo "$backup_destination_root/google_backup/$backup_name/www/ $backup_name/www" | $backup_destination_root/function/executeUpload.rb 
+        # check for errors
+        if [ $? -eq 1 ]; then
+            # Error!
+            echo "$date :Please check for service\\n Path:  $1/$2" | mail -s "Backup script error:WWW,Path:  $1/$2" root
+        fi
+        # 4.remove that hard link
+        rm -rf $backup_destination_root/google_backup/$backup_name/www/*
+    fi
+}
+
+backup_db() {
+    # Logging
+    /usr/bin/logger -p local0.notice -t Backup "Backup database '$1' to $backup_destination_root/database/"
+    echo "backup DB for $1"
+    # rotate
+    ## change directory first
+    cd $backup_destination_root/database/
+    rotate $1
+    # generate date
+    dateGen
+    echo "create date...$date"
+    filename="${1}_backup.0@${date}.sql"
+    /usr/local/bin/mysqldump -u root -p`cat /usr/local/etc/mysql.root` $1 > $filename
+    chmod 400 $filename
+    # Google Backup
+    if [ $to_google -eq 1 ]; then
+        /usr/bin/logger -p local0.notice -t Backup "Upload the DB backup files for $1 to google drive"
+        # also upload this to google
+        # 1.create directory
+        rm -rf $backup_destination_root/google_backup/$backup_name/db/*
+        mkdir -p $backup_destination_root/google_backup/$backup_name/db
+        # 2.create hard link in prepare dir
+        ln $backup_destination_root/database/$filename $backup_destination_root/google_backup/$backup_name/db/$filename
+        # 3.upload whole dir
+        cd "$backup_destination_root/function/" && echo "$backup_destination_root/google_backup/$backup_name/db/ $backup_name/db" | $backup_destination_root/function/executeUpload.rb 
+        # check for errors
+        if [ $? -eq 1 ]; then
+            # Error!
+            echo "$date :Please check for service\\n Name:  $1" | mail -s "Backup script error:DB, Name: $1" root
+        fi
+        # 4.remove that hard link
+        rm -rf $backup_destination_root/google_backup/$backup_name/db/*
+    fi
+
+}
+
+#------------------------------------------
+# help function, print out help message and exit
+#------------------------------------------
+CallHelp(){
+    echo  "Usage: $0 -hg {[-r backup-root -b backup-name ] | [-d database] [-n rotat-num] }"
+    exit 1
+}
+
+
+to_google=0
+need_help=1
+backup_req=0
+backup_root=''
+backup_name=''
+dump_req=0
+MAX_ROTATE=10
+database=''
+backup_destination_root='/backup'
+
+
+while getopts hgr:b:d:n: op
+do
+    case  $op in
+        h)
+            need_help=1
+            ;;
+        g)
+            to_google=1
+            ;;
+        r)
+            backup_req=1
+            backup_root=$OPTARG
+            ;;
+        b)
+            need_help=0
+            backup_req=1
+            backup_name=$OPTARG
+            ;;
+        d)
+            need_help=0
+            dump_req=1
+            database=$OPTARG
+            ;;
+        n)
+            need_help=0
+            MAX_ROTATE=$OPTARG
+            ;;
+        *)
+            need_help=1
+            ;;
+    esac
+done
+shift `expr $OPTIND - 1`
+
+#------------------------------------------
+# Check option:help
+#------------------------------------------
+if [ $need_help -eq 1 ]; then
+    CallHelp
+fi
+
+# 備份普通網站
+if [ $backup_req -eq 1 ]; then
+    echo "Root:$backup_root Name:$backup_name"
+    backup_www $backup_root $backup_name
+fi
+
+# 備份資料庫
+if [ $dump_req -eq 1 ]; then
+    backup_db $database
+fi
+
