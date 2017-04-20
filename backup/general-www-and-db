@@ -52,7 +52,7 @@ backup_www() {
         # 2.create hard link in prepare dir
         ln $backup_destination_root/www/"$name".tar.gz $backup_destination_root/google_backup/$backup_name/www/"$name".tar.gz
         # 3.upload whole dir
-        cd "$backup_destination_root/function/" && echo "$backup_destination_root/google_backup/$backup_name/www/ $backup_name/www" | $backup_destination_root/function/executeUpload.rb 
+        cd "$additional_function_path/" && echo "$backup_destination_root/google_backup/$backup_name/www/ $backup_name/www" | $additional_function_path/executeUpload.rb 
         # check for errors
         if [ $? -eq 1 ]; then
             # Error!
@@ -87,7 +87,7 @@ backup_db() {
         # 2.create hard link in prepare dir
         ln $backup_destination_root/database/$filename $backup_destination_root/google_backup/$backup_name/db/$filename
         # 3.upload whole dir
-        cd "$backup_destination_root/function/" && echo "$backup_destination_root/google_backup/$backup_name/db/ $backup_name/db" | $backup_destination_root/function/executeUpload.rb 
+        cd "$additional_function_path/" && echo "$backup_destination_root/google_backup/$backup_name/db/ $backup_name/db" | $additional_function_path/executeUpload.rb 
         # check for errors
         if [ $? -eq 1 ]; then
             # Error!
@@ -117,6 +117,7 @@ dump_req=0
 MAX_ROTATE=10
 database=''
 backup_destination_root='/backup'
+additional_function_path="`pwd`/function"
 
 
 while getopts hgr:b:d:n: op
